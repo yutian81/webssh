@@ -42,7 +42,7 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   font-family: Helvetica Neue, Helvetica, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Arial, sans-serif;
-  background-image: var(--bg-image);
+  background: var(--bg-image);
   background-position: var(--bg-image-position);
   background-size: var(--bg-image-size);
   background-repeat: var(--bg-image-repeat);
