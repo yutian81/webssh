@@ -5,6 +5,7 @@ on:
     workflows: ["Build and Release"]
     types:
       - completed
+  workflow_dispatch:
 
 jobs:
   publish-docker:
