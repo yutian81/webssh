@@ -33,13 +33,11 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install frontend dependencies
-        working-directory: ./frontend
-        run: npm ci
-
       - name: Build frontend
         working-directory: ./frontend
-        run: npm run build
+        run: |
+          npm ci
+          npm run build
 
       - name: Build for multiple platforms
         env:
