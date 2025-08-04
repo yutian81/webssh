@@ -1,0 +1,68 @@
+name: Docker Image Publish
+
+on:
+  workflow_run:
+    workflows: ["Build and Release"]
+    types:
+      - completed
+
+jobs:
+  publish-docker:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get next version number
+        id: version
+        run: |
+          # 获取最新镜像版本
+          CURRENT_VERSION=$(curl -s "https://api.github.com/users/${{ github.repository_owner }}/packages/container/${{ github.event.repository.name }}/versions" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            | jq -r '.[].metadata.container.tags[]' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
+
+          # 如果没有找到版本则使用1.0.0
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "version=1.0.0" >> $GITHUB_OUTPUT
+          else
+            # 递增小版本号
+            MAJOR_MINOR=$(echo $CURRENT_VERSION | cut -d. -f1-2)
+            PATCH=$(echo $CURRENT_VERSION | cut -d. -f3)
+            NEW_PATCH=$((PATCH + 1))
+            NEW_VERSION="${MAJOR_MINOR}.${NEW_PATCH}"
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Using version: ${{ steps.version.outputs.version }}"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update version file
+        run: |
+          echo "${{ steps.version.outputs.version }}" > version.txt
+          git config user.name "github-actions"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add version.txt
+          git commit -m "ci: bump docker version to ${{ steps.version.outputs.version }}"
+          git push
