@@ -5,7 +5,6 @@ on:
     workflows: ["Build and Release"]
     types:
       - completed
-  workflow_dispatch:
 
 jobs:
   publish-docker:
@@ -18,28 +17,36 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container  # 使用支持缓存的后端驱动
 
       - name: Get next version number
         id: version
         run: |
-          # 获取最新镜像版本
-          CURRENT_VERSION=$(curl -s "https://api.github.com/users/${{ github.repository_owner }}/packages/container/${{ github.event.repository.name }}/versions" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            | jq -r '.[].metadata.container.tags[]' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
-
-          # 如果没有找到版本则使用1.0.0
-          if [ -z "$CURRENT_VERSION" ]; then
+          # 查询已有镜像版本
+          TAGS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/users/${{ github.repository_owner }}/packages/container/${{ github.event.repository.name }}/versions" \
+            | jq -r '.[].metadata.container.tags[]' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          
+          if [ -z "$TAGS" ]; then
+            # 首次运行：使用初始版本 1.0.0
             echo "version=1.0.0" >> $GITHUB_OUTPUT
+            echo "Initial version 1.0.0"
           else
-            # 递增小版本号
-            MAJOR_MINOR=$(echo $CURRENT_VERSION | cut -d. -f1-2)
-            PATCH=$(echo $CURRENT_VERSION | cut -d. -f3)
+            # 获取最新版本并递增
+            LATEST=$(echo "$TAGS" | sort -V | tail -n1)
+            MAJOR_MINOR=$(echo $LATEST | cut -d. -f1-2)
+            PATCH=$(echo $LATEST | cut -d. -f3)
             NEW_PATCH=$((PATCH + 1))
             NEW_VERSION="${MAJOR_MINOR}.${NEW_PATCH}"
             echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "Upgraded $LATEST → $NEW_VERSION"
           fi
-
-          echo "Using version: ${{ steps.version.outputs.version }}"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -56,14 +63,21 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
             ghcr.io/${{ github.repository }}:latest
+          # 使用支持缓存的构建器
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          builder: ${{ steps.buildx.outputs.name }}  # 使用上一步设置的构建器
 
       - name: Update version file
         run: |
+          # 创建或更新版本文件
           echo "${{ steps.version.outputs.version }}" > version.txt
+          
+          # 配置 Git 用户
           git config user.name "github-actions"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "github-actions[bot]@noreply.github.com"
+          
+          # 提交更改
           git add version.txt
           git commit -m "ci: bump docker version to ${{ steps.version.outputs.version }}"
           git push
