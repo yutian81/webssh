@@ -38,8 +38,6 @@ jobs:
         run: |
           npm ci
           npm run build
-          # mkdir -p public/static/img
-          # cp -r ./frontend/public/img/* public/static/img/
 
       - name: Build for multiple platforms
         env:
